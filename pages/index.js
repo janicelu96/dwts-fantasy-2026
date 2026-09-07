@@ -4,35 +4,40 @@ import Link from 'next/link'
 
 export default function Home() {  
   const [leaderboard, setLeaderboard] = useState([])  
-  const [activeWeek, setActiveWeek] = useState(null)  
-  const [mirrorballPicks, setMirrorballPicks] = useState([])  
-  const [castMembers, setCastMembers] = useState([])
+  const [activeWeek, setActiveWeek] = useState(null)
 
   useEffect(() => {  
-    fetchLeaderboard()  
     fetchActiveWeek()  
-    fetchMirrorballPicks()  
+    fetchLeaderboard()  
   }, [])
-
-  async function fetchLeaderboard() {  
-    const { data } = await supabase.from('leaderboard').select('*')  
-    if (data) setLeaderboard(data)  
-  }
 
   async function fetchActiveWeek() {  
     const { data } = await supabase  
-      .from('weekly_sets')  
+      .from('weeks')  
       .select('*')  
       .eq('is_active', true)  
+      .order('week_number', { ascending: false })  
+      .limit(1)  
       .single()  
     if (data) setActiveWeek(data)  
   }
 
-  async function fetchMirrorballPicks() {  
-    const { data } = await supabase  
-      .from('mirrorball_picks')  
-      .select('*, friends(name), cast_members(celebrity_name, pro_partner)')  
-    if (data) setMirrorballPicks(data)  
+  async function fetchLeaderboard() {  
+    const { data: users } = await supabase.from('users').select('*')  
+    if (!users) return
+
+    const leaderboardData = []  
+    for (const user of users) {  
+      const { data: answers } = await supabase  
+        .from('answers')  
+        .select('points')  
+        .eq('user_id', user.id)  
+        
+      const totalPoints = answers ? answers.reduce((sum, a) => sum + (a.points || 0), 0) : 0  
+      leaderboardData.push({ ...user, total_points: totalPoints })  
+    }  
+    leaderboardData.sort((a, b) => b.total_points - a.total_points)  
+    setLeaderboard(leaderboardData)  
   }
 
   return (  
@@ -43,19 +48,17 @@ export default function Home() {
       </div>
 
       <div style={styles.nav}>  
-        {activeWeek && (  
-          <Link href={`/weekly/${activeWeek.id}`}>  
+        {activeWeek ? (  
+          <Link href="/play">  
             <button style={styles.navButton}>  
-              📝 This Week's Questions (Week {activeWeek.week_number})  
+              📝 Play Week {activeWeek.week_number} - {activeWeek.theme}  
             </button>  
           </Link>  
+        ) : (  
+          <button style={{...styles.navButton, opacity: 0.5}} disabled>  
+            📝 No Active Week Yet  
+          </button>  
         )}  
-        <Link href="/mirrorball">  
-          <button style={styles.navButtonAlt}>🏆 Mirrorball Pick</button>  
-        </Link>  
-        <Link href="/history">  
-          <button style={styles.navButtonAlt}>📅 Past Weeks</button>  
-        </Link>  
         <Link href="/admin">  
           <button style={styles.navButtonSmall}>🔐 Admin</button>  
         </Link>  
@@ -65,17 +68,17 @@ export default function Home() {
         <h2 style={styles.sectionTitle}>🏆 Leaderboard</h2>  
         <div style={styles.card}>  
           {leaderboard.length === 0 ? (  
-            <p style={styles.emptyText}>No scores yet! Questions will be graded after each episode.</p>  
+            <p style={styles.emptyText}>No scores yet! Play this week's questions to get on the board.</p>  
           ) : (  
             leaderboard.map((entry, index) => (  
-              <div key={entry.friend_id} style={{  
+              <div key={entry.id} style={{  
                 ...styles.leaderboardRow,  
                 backgroundColor: index === 0 ? 'rgba(255, 215, 0, 0.15)' :  
                   index === 1 ? 'rgba(192, 192, 192, 0.1)' :  
                   index === 2 ? 'rgba(205, 127, 50, 0.1)' : 'transparent'  
               }}>  
                 <span style={styles.rank}>  
-                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${entry.rank}`}  
+                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}  
                 </span>  
                 <span style={styles.playerName}>{entry.name}</span>  
                 <span style={styles.points}>{entry.total_points} pts</span>  
@@ -83,23 +86,7 @@ export default function Home() {
             ))  
           )}  
         </div>  
-      </div>
-
-      {mirrorballPicks.length > 0 && (  
-        <div style={styles.section}>  
-          <h2 style={styles.sectionTitle}>🪩 Mirrorball Picks</h2>  
-          <div style={styles.card}>  
-            {mirrorballPicks.map((pick) => (  
-              <div key={pick.id} style={styles.pickRow}>  
-                <span style={styles.playerName}>{pick.friends?.name}</span>  
-                <span style={styles.pickValue}>  
-                  {pick.cast_members?.celebrity_name} & {pick.cast_members?.pro_partner}  
-                </span>  
-              </div>  
-            ))}  
-          </div>  
-        </div>  
-      )}  
+      </div>  
     </div>  
   )  
 }
@@ -140,17 +127,6 @@ const styles = {
     borderRadius: '12px',  
     background: 'linear-gradient(135deg, #FFD700, #FFA500)',  
     color: '#000',  
-    cursor: 'pointer',  
-    width: '100%',  
-  },  
-  navButtonAlt: {  
-    padding: '12px 20px',  
-    fontSize: '1rem',  
-    fontWeight: 'bold',  
-    border: '2px solid #FFD700',  
-    borderRadius: '12px',  
-    background: 'transparent',  
-    color: '#FFD700',  
     cursor: 'pointer',  
     width: '100%',  
   },  
@@ -198,16 +174,6 @@ const styles = {
     fontSize: '1rem',  
     fontWeight: 'bold',  
     color: '#FFD700',  
-  },  
-  pickRow: {  
-    display: 'flex',  
-    justifyContent: 'space-between',  
-    padding: '10px',  
-    borderBottom: '1px solid rgba(255,255,255,0.05)',  
-  },  
-  pickValue: {  
-    color: '#aaa',  
-    fontSize: '0.9rem',  
   },  
   emptyText: {  
     color: '#888',  
