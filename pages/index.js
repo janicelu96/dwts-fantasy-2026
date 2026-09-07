@@ -31,8 +31,8 @@ export default function Home() {
       const { data: answers } = await supabase  
         .from('answers')  
         .select('points')  
-        .eq('user_id', user.id)  
-        
+        .eq('user_id', user.id)
+
       const totalPoints = answers ? answers.reduce((sum, a) => sum + (a.points || 0), 0) : 0  
       leaderboardData.push({ ...user, total_points: totalPoints })  
     }  
@@ -68,7 +68,7 @@ export default function Home() {
         <h2 style={styles.sectionTitle}>🏆 Leaderboard</h2>  
         <div style={styles.card}>  
           {leaderboard.length === 0 ? (  
-            <p style={styles.emptyText}>No scores yet! Play this week's questions to get on the board.</p>  
+            <p style={styles.emptyText}>No scores yet! Play this weeks questions to get on the board.</p>  
           ) : (  
             leaderboard.map((entry, index) => (  
               <div key={entry.id} style={{  
