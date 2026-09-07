@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import Link from 'next/link'
 
 export default function Admin() {  
-  const [password, setPassword] = useState('DWTS_2026')  
+  const [password, setPassword] = useState('')  
   const [authenticated, setAuthenticated] = useState(false)  
   const [weekNumber, setWeekNumber] = useState('')  
   const [theme, setTheme] = useState('')  
