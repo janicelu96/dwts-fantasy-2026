@@ -6,316 +6,206 @@ import Link from 'next/link'
 export default function WeeklyQuestions() {  
   const router = useRouter()  
   const { id } = router.query  
-  const [weekSet, setWeekSet] = useState(null)  
+  const [week, setWeek] = useState(null)  
   const [questions, setQuestions] = useState([])  
-  const [friends, setFriends] = useState([])  
-  const [selectedFriend, setSelectedFriend] = useState('')  
   const [answers, setAnswers] = useState({})  
+  const [users, setUsers] = useState([])  
+  const [selectedUser, setSelectedUser] = useState('')  
+  const [submitted, setSubmitted] = useState(false)  
   const [message, setMessage] = useState('')  
-  const [existingAnswers, setExistingAnswers] = useState([])  
-  const [hasSubmitted, setHasSubmitted] = useState(false)
+  const [alreadySubmitted, setAlreadySubmitted] = useState(false)
 
   useEffect(() => {  
     if (id) {  
-      fetchWeekData()  
-      fetchFriends()  
+      fetchWeek()  
+      fetchUsers()  
     }  
   }, [id])
 
   useEffect(() => {  
-    if (selectedFriend && id) {  
+    if (selectedUser && questions.length > 0) {  
       checkExistingAnswers()  
     }  
-  }, [selectedFriend, id])
+  }, [selectedUser, questions])
 
-  async function fetchWeekData() {  
+  const fetchWeek = async () => {  
     const { data: weekData } = await supabase  
-      .from('weekly_sets')  
+      .from('weeks')  
       .select('*')  
       .eq('id', id)  
-      .single()  
-    if (weekData) setWeekSet(weekData)
+      .single()
 
-    const { data: questionData } = await supabase  
-      .from('weekly_questions')  
-      .select('*')  
-      .eq('set_id', id)  
-      .order('id')  
-    if (questionData) setQuestions(questionData)  
+    if (weekData) {  
+      setWeek(weekData)  
+      const { data: questionsData } = await supabase  
+        .from('questions')  
+        .select('*')  
+        .eq('week_id', weekData.id)
+
+      if (questionsData) setQuestions(questionsData)  
+    }  
   }
 
-  async function fetchFriends() {  
-    const { data } = await supabase.from('friends').select('*').order('name')  
-    if (data) setFriends(data)  
-  }
-
-  async function checkExistingAnswers() {  
+  const fetchUsers = async () => {  
     const { data } = await supabase  
-      .from('weekly_answers')  
+      .from('users')  
       .select('*')  
-      .eq('friend_id', parseInt(selectedFriend))  
-      .in('question_id', questions.map(q => q.id))  
-      
+      .order('display_name')  
+    if (data) setUsers(data)  
+  }
+
+  const checkExistingAnswers = async () => {  
+    const { data } = await supabase  
+      .from('answers')  
+      .select('*')  
+      .eq('user_id', selectedUser)  
+      .in('question_id', questions.map(q => q.id))
+
     if (data && data.length > 0) {  
-      setHasSubmitted(true)  
-      const answerMap = {}  
+      setAlreadySubmitted(true)  
+      const existingAnswers = {}  
       data.forEach(a => {  
-        answerMap[a.question_id] = a.answer  
+        existingAnswers[a.question_id] = a.answer  
       })  
-      setAnswers(answerMap)  
+      setAnswers(existingAnswers)  
     } else {  
-      setHasSubmitted(false)  
+      setAlreadySubmitted(false)  
       setAnswers({})  
     }  
   }
 
-  async function submitAnswers() {  
-    if (!selectedFriend) {  
-      setMessage('Please select your name!')  
+  const handleSubmit = async () => {  
+    if (!selectedUser) {  
+      setMessage('Please select your name')  
       return  
     }
 
     const unanswered = questions.filter(q => !answers[q.id])  
     if (unanswered.length > 0) {  
-      setMessage('Please answer all questions!')  
+      setMessage('Please answer all questions')  
       return  
     }
 
-    if (hasSubmitted) {  
-      for (const question of questions) {  
-        await supabase  
-          .from('weekly_answers')  
-          .update({ answer: answers[question.id] })  
-          .eq('friend_id', parseInt(selectedFriend))  
-          .eq('question_id', question.id)  
-      }  
-      setMessage('✅ Your answers have been updated!')  
-    } else {  
-      const inserts = questions.map(q => ({  
-        friend_id: parseInt(selectedFriend),  
-        question_id: q.id,  
-        answer: answers[q.id],  
-      }))
+    for (const q of questions) {  
+      const { error } = await supabase  
+        .from('answers')  
+        .insert([{  
+          user_id: selectedUser,  
+          question_id: q.id,  
+          answer: answers[q.id]  
+        }])
 
-      const { error } = await supabase.from('weekly_answers').insert(inserts)  
       if (error) {  
-        setMessage('Error: ' + error.message)  
-      } else {  
-        setMessage('✅ Your answers have been submitted!')  
-        setHasSubmitted(true)  
+        setMessage('Error submitting: ' + error.message)  
+        return  
       }  
-    }  
+    }
+
+    setSubmitted(true)  
+    setMessage('Answers submitted successfully! 🎉')  
   }
 
-  function renderQuestionInput(question) {  
-    const castOptions = question.options ? question.options.split(',').map(o => o.trim()) : []  
-      
-    if (question.question_type === 'multiple_choice' && castOptions.length > 0) {  
-      return (  
-        <div style={styles.optionsContainer}>  
-          {castOptions.map((option, idx) => (  
-            <button  
-              key={idx}  
-              style={{  
-                ...styles.optionButton,  
-                backgroundColor: answers[question.id] === option ? 'rgba(255, 215, 0, 0.3)' : 'rgba(255,255,255,0.05)',  
-                borderColor: answers[question.id] === option ? '#FFD700' : 'rgba(255,255,255,0.1)',  
-              }}  
-              onClick={() => setAnswers({ ...answers, [question.id]: option })}  
-            >  
-              {option}  
-            </button>  
-          ))}  
-        </div>  
-      )  
-    }
-
-    if (question.question_type === 'number') {  
-      return (  
-        <input  
-          type="number"  
-          style={styles.input}  
-          value={answers[question.id] || ''}  
-          onChange={(e) => setAnswers({ ...answers, [question.id]: e.target.value })}  
-          placeholder="Enter a number..."  
-        />  
-      )  
-    }
-
+  if (!week) {  
     return (  
-      <input  
-        type="text"  
-        style={styles.input}  
-        value={answers[question.id] || ''}  
-        onChange={(e) => setAnswers({ ...answers, [question.id]: e.target.value })}  
-        placeholder="Type your answer..."  
-      />  
+      <div style={{ padding: '20px', textAlign: 'center', fontFamily: 'Arial' }}>  
+        <p style={{ color: 'white' }}>Loading...</p>  
+      </div>  
     )  
   }
 
-  if (!weekSet) return <div style={styles.container}><p>Loading...</p></div>
-
   return (  
-    <div style={styles.container}>  
-      <Link href="/">  
-        <p style={styles.backLink}>← Back to Home</p>  
-      </Link>
+    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'Arial' }}>  
+      <h1 style={{ color: '#DAA520', textAlign: 'center' }}>Week {week.week_number}</h1>  
+      {week.theme && <p style={{ color: '#888', textAlign: 'center', fontSize: '18px' }}>{week.theme}</p>}
 
-      <h1 style={styles.title}>📝 Week {weekSet.week_number}</h1>  
-      <p style={styles.subtitle}>{weekSet.theme || 'Weekly Questions'}</p>
+      {!submitted && !alreadySubmitted && (  
+        <>  
+          <div style={{ marginBottom: '20px' }}>  
+            <label style={{ color: '#DAA520', display: 'block', marginBottom: '8px', fontSize: '16px' }}>Who are you?</label>  
+            <select  
+              value={selectedUser}  
+              onChange={(e) => setSelectedUser(e.target.value)}  
+              style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #DAA520', backgroundColor: '#1a1a2e', color: 'white', fontSize: '16px' }}  
+            >  
+              <option value="">Select your name</option>  
+              {users.map(u => (  
+                <option key={u.id} value={u.id}>{u.display_name}</option>  
+              ))}  
+            </select>  
+          </div>
 
-      <div style={styles.formGroup}>  
-        <label style={styles.label}>Your Name:</label>  
-        <select  
-          style={styles.select}  
-          value={selectedFriend}  
-          onChange={(e) => setSelectedFriend(e.target.value)}  
-        >  
-          <option value="">-- Select your name --</option>  
-          {friends.map(f => (  
-            <option key={f.id} value={f.id}>{f.name}</option>  
+          {selectedUser && questions.map((q, index) => (  
+            <div key={q.id} style={{ backgroundColor: '#16213e', padding: '15px', borderRadius: '12px', marginBottom: '15px' }}>  
+              <h3 style={{ color: '#DAA520', marginBottom: '10px' }}>Q{index + 1}: {q.question_text}</h3>
+
+              {q.question_type === 'fill_in_blank' ? (  
+                <input  
+                  type="text"  
+                  placeholder="Type your answer..."  
+                  value={answers[q.id] || ''}  
+                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}  
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #DAA520', backgroundColor: '#1a1a2e', color: 'white', fontSize: '16px' }}  
+                />  
+              ) : (  
+                q.options && q.options.map((opt, oIndex) => (  
+                  <button  
+                    key={oIndex}  
+                    onClick={() => setAnswers({ ...answers, [q.id]: opt })}  
+                    style={{  
+                      display: 'block',  
+                      width: '100%',  
+                      padding: '10px',  
+                      marginBottom: '8px',  
+                      borderRadius: '8px',  
+                      border: answers[q.id] === opt ? '2px solid #DAA520' : '1px solid #444',  
+                      backgroundColor: answers[q.id] === opt ? '#DAA520' : '#1a1a2e',  
+                      color: answers[q.id] === opt ? 'black' : 'white',  
+                      cursor: 'pointer',  
+                      fontSize: '14px',  
+                      fontWeight: answers[q.id] === opt ? 'bold' : 'normal'  
+                    }}  
+                  >  
+                    {opt}  
+                  </button>  
+                ))  
+              )}  
+            </div>  
+          ))}
+
+          {selectedUser && (  
+            <button  
+              onClick={handleSubmit}  
+              style={{ width: '100%', padding: '14px', backgroundColor: '#DAA520', color: 'black', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '18px', cursor: 'pointer', marginBottom: '15px' }}  
+            >  
+              Submit Answers  
+            </button>  
+          )}  
+        </>  
+      )}
+
+      {alreadySubmitted && !submitted && (  
+        <div style={{ textAlign: 'center', padding: '20px' }}>  
+          <p style={{ color: '#DAA520', fontSize: '18px' }}>✅ You already submitted answers for this week!</p>  
+          {questions.map((q, index) => (  
+            <div key={q.id} style={{ backgroundColor: '#16213e', padding: '15px', borderRadius: '12px', marginBottom: '10px', textAlign: 'left' }}>  
+              <p style={{ color: '#DAA520', marginBottom: '5px' }}>Q{index + 1}: {q.question_text}</p>  
+              <p style={{ color: 'white' }}>Your answer: {answers[q.id]}</p>  
+            </div>  
           ))}  
-        </select>  
-      </div>
-
-      {hasSubmitted && (  
-        <div style={styles.alreadySubmitted}>  
-          ✅ You already submitted! You can update your answers below.  
         </div>  
       )}
 
-      {questions.map((question, index) => (  
-        <div key={question.id} style={styles.questionCard}>  
-          <p style={styles.questionNumber}>Question {index + 1}</p>  
-          <p style={styles.questionText}>{question.question_text}</p>  
-          <p style={styles.pointsText}>{question.points} point{question.points > 1 ? 's' : ''}</p>  
-          {renderQuestionInput(question)}  
+      {submitted && (  
+        <div style={{ textAlign: 'center', padding: '20px' }}>  
+          <p style={{ color: '#DAA520', fontSize: '20px' }}>🎉 Answers submitted!</p>  
         </div>  
-      ))}
-
-      {questions.length > 0 && (  
-        <button style={styles.submitButton} onClick={submitAnswers}>  
-          {hasSubmitted ? 'Update Answers' : 'Submit Answers'} ✨  
-        </button>  
       )}
 
-      {message && <p style={styles.message}>{message}</p>}  
+      {message && <p style={{ color: '#DAA520', textAlign: 'center' }}>{message}</p>}
+
+      <div style={{ textAlign: 'center', marginTop: '20px' }}>  
+        <Link href="/" style={{ color: '#DAA520' }}>← Back to Home</Link>  
+      </div>  
     </div>  
   )  
-}
-
-const styles = {  
-  container: {  
-    maxWidth: '600px',  
-    margin: '0 auto',  
-    padding: '20px',  
-    minHeight: '100vh',  
-  },  
-  backLink: {  
-    color: '#FFD700',  
-    marginBottom: '20px',  
-    cursor: 'pointer',  
-  },  
-  title: {  
-    fontSize: '2rem',  
-    textAlign: 'center',  
-    marginBottom: '5px',  
-    color: '#FFD700',  
-  },  
-  subtitle: {  
-    textAlign: 'center',  
-    color: '#ccc',  
-    marginBottom: '25px',  
-  },  
-  formGroup: {  
-    marginBottom: '20px',  
-  },  
-  label: {  
-    display: 'block',  
-    marginBottom: '8px',  
-    fontWeight: 'bold',  
-    color: '#ddd',  
-  },  
-  select: {  
-    width: '100%',  
-    padding: '12px',  
-    borderRadius: '8px',  
-    border: '1px solid rgba(255,255,255,0.2)',  
-    backgroundColor: 'rgba(255,255,255,0.1)',  
-    color: '#fff',  
-    fontSize: '1rem',  
-  },  
-  alreadySubmitted: {  
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',  
-    border: '1px solid rgba(76, 175, 80, 0.3)',  
-    borderRadius: '8px',  
-    padding: '12px',  
-    marginBottom: '20px',  
-    textAlign: 'center',  
-    color: '#4CAF50',  
-  },  
-  questionCard: {  
-    backgroundColor: 'rgba(255,255,255,0.05)',  
-    borderRadius: '12px',  
-    padding: '20px',  
-    border: '1px solid rgba(255,255,255,0.1)',  
-    marginBottom: '15px',  
-  },  
-  questionNumber: {  
-    color: '#FFD700',  
-    fontSize: '0.85rem',  
-    fontWeight: 'bold',  
-    marginBottom: '5px',  
-  },  
-  questionText: {  
-    fontSize: '1.1rem',  
-    marginBottom: '8px',  
-    lineHeight: '1.4',  
-  },  
-  pointsText: {  
-    color: '#888',  
-    fontSize: '0.8rem',  
-    marginBottom: '12px',  
-  },  
-  optionsContainer: {  
-    display: 'flex',  
-    flexDirection: 'column',  
-    gap: '8px',  
-  },  
-  optionButton: {  
-    padding: '12px',  
-    borderRadius: '8px',  
-    border: '1px solid rgba(255,255,255,0.1)',  
-    color: '#fff',  
-    cursor: 'pointer',  
-    textAlign: 'left',  
-    fontSize: '0.95rem',  
-  },  
-  input: {  
-    width: '100%',  
-    padding: '12px',  
-    borderRadius: '8px',  
-    border: '1px solid rgba(255,255,255,0.2)',  
-    backgroundColor: 'rgba(255,255,255,0.1)',  
-    color: '#fff',  
-    fontSize: '1rem',  
-  },  
-  submitButton: {  
-    width: '100%',  
-    padding: '16px',  
-    fontSize: '1.1rem',  
-    fontWeight: 'bold',  
-    border: 'none',  
-    borderRadius: '12px',  
-    background: 'linear-gradient(135deg, #FFD700, #FFA500)',  
-    color: '#000',  
-    cursor: 'pointer',  
-    marginBottom: '15px',  
-  },  
-  message: {  
-    textAlign: 'center',  
-    color: '#4CAF50',  
-    fontWeight: 'bold',  
-    marginBottom: '20px',  
-  },  
 }  
